@@ -1,16 +1,9 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# @Time    : 2023/9/24 22:13
-# @Author  : Cl0udG0d
-# @File    : fofaMain.py
-# @Github: https://github.com/Cl0udG0d
 import json
 import os
 import random
 import sys
 import urllib
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 import base64
 import time
 from urllib.parse import quote_plus
@@ -30,6 +23,7 @@ if getattr(sys, 'frozen', None):
     dir = sys._MEIPASS
 else:
     dir = config.ROOT_PATH
+
 # 获取当前的语言设置
 lang, _ = locale.getdefaultlocale()
 if lang.startswith('zh'):
@@ -290,16 +284,14 @@ class FofaMain:
             if key in search_key:
                 pattern = r'{}="([^"]+)"'.format(key)
                 match = re.search(pattern, search_key)
-                city = match.group(1)
-                return city
+                if match:
+                    city = match.group(1)
+                    return city
         return None
 
     def check_authorization_is_available(self):
 
-        # au = config.AUTHORIZATION_LIST.pop()
-        # print(au)
-        # print(config.AUTHORIZATION_LIST)
-        while len(config.AUTHORIZATION_LIST)>0:
+        while len(config.AUTHORIZATION_LIST) > 0:
             config.AUTHORIZATION = config.AUTHORIZATION_LIST.pop()
 
             try:
@@ -337,7 +329,7 @@ class FofaMain:
 
             request_url = getUrl(searchbs64)
             if config.DEBUG:
-                print("[+] 当前请求网址: "+request_url)
+                print("[+] 当前请求网址: " + request_url)
 
             rep = requests.get(request_url, headers=fofaUseragent.getFofaPageNumHeaders(), timeout=self.timeout,
                                proxies=self.get_proxy())
@@ -366,10 +358,7 @@ class FofaMain:
         获取fofa一页的数据
         :rtype: object
         """
-        # searchbs64 = searchbs64.replace("%3D", "=")
-        # init_search_key = base64.b64decode(searchbs64).decode()
         init_search_key = search_key
-        # if not config.AUTHORIZATION:
         print("\033[1;34mnow search key: {}\033[0m".format(init_search_key))
         TEMP_RETRY_NUM = 0
 
@@ -425,49 +414,47 @@ class FofaMain:
 
     def fofaSpider(self, search_key, searchbs64, index):
         """
-        爬取某关键字的fofa数据
-        @param search_key:
-        @param searchbs64:
-        @param index:
-        @return:
+        迭代方式爬取 Fofa 数据，避免递归调用导致的栈溢出。
         """
-        # while len(self.host_set) < self.endcount and self.old_length !=len(self.host_set):
-        self.old_length = len(self.host_set)
-        self.timestamp_list[index].clear()
-        context = self.fofaSpiderOnePageData(search_key, searchbs64, index)
+        stack = [(search_key, searchbs64, index)]
 
-        if self.EXIT_FLAG:
-            return
+        while stack and not self.EXIT_FLAG:
+            current_key, current_bs64, current_index = stack.pop()
+            self.old_length = len(self.host_set)
+            self.timestamp_list[current_index].clear()
+            context = self.fofaSpiderOnePageData(current_key, current_bs64, current_index)
 
-        if len(self.host_set) >= self.endcount:
-            print(colorize(_("[*] 在{}节点,数据爬取结束").format(index), "green"))
-            if self.output == 'txt':
-                finalint = self.removeDuplicate()
-                print(colorize(_('[*] 去重结束，最终数据 {} 条').format(str(finalint)), "green"))
+            if self.EXIT_FLAG:
+                break
+
+            if len(self.host_set) >= self.endcount:
+                print(colorize(_("[*] 在{}节点,数据爬取结束").format(current_index), "green"))
+                if self.output == 'txt':
+                    finalint = self.removeDuplicate()
+                    print(colorize(_('[*] 去重结束，最终数据 {} 条').format(str(finalint)), "green"))
+                else:
+                    print(colorize(_('[*] 输出类型为其他,不进行去重操作 '), "green"))
+                self.EXIT_FLAG = True
+                break
+
+            if self.old_length == len(self.host_set):
+                self.no_new_data_count += 1
+                if self.no_new_data_count == 2:
+                    print(colorize(_("[-] {}节点数据无新增,该节点枯萎").format(current_index), "red"))
+                    continue
             else:
-                print(colorize(_('[*] 输出类型为其他,不进行去重操作 '), "green"))
-            self.EXIT_FLAG = True
-            return
-        if self.old_length == len(self.host_set):
-            self.no_new_data_count += 1
-            if self.no_new_data_count == 2:
-                print(colorize(_("[-] {}节点数据无新增,该节点枯萎").format(index), "red"))
-                return
-        else:
-            self.no_new_data_count = 0
+                self.no_new_data_count = 0
 
-        if self.fuzz and not self.EXIT_FLAG:
-            self.fofaFuzzSpider(search_key, context, index)
+            if self.fuzz and not self.EXIT_FLAG:
+                new_tasks = self.fofaFuzzSpider(current_key, context, current_index)
+                stack.extend(new_tasks)  # 将新任务添加到栈中
 
-        search_key_modify = self.modifySearchTimeUrl(search_key, index)
-        # 特判，如果destroy不exit的话就会出错
-        if search_key_modify == 'end':
-            return
-        # print(search_key_modify)
-        searchbs64_modify = urllib.parse.quote(base64.b64encode(search_key_modify.encode("utf-8")))
-        # search_key = search_key_modify
-        # searchbs64 = searchbs64_modify
-        self.fofaSpider(search_key_modify, searchbs64_modify, index)
+            search_key_modify = self.modifySearchTimeUrl(current_key, current_index)
+            if search_key_modify == 'end':
+                continue
+
+            searchbs64_modify = urllib.parse.quote(base64.b64encode(search_key_modify.encode("utf-8")))
+            stack.append((search_key_modify, searchbs64_modify, current_index))
 
     def isPortInKeyword(self):
         """
@@ -481,7 +468,7 @@ class FofaMain:
                 return False
         if "host" in self.search_key:
             result = re.findall('host="(.*?)"', self.search_key)
-            if len(result) > 0 and ":" in result:
+            if len(result) > 0 and ":" in result[0]:
                 return False
         return True
 
@@ -498,16 +485,16 @@ class FofaMain:
 
     def fofaFuzzSpider(self, search_key, context, index):
         """
-        递归调用 fofaSpider 方法不断 fuzz
-        @param search_key:
-        @param searchbs64:
-        @return:
+        生成新的 fuzz 任务，而不是递归调用 fofaSpider。
+        返回一个包含新任务的列表。
         """
 
         '''
             fuzz部分
         '''
         FUZZ_LIST = ["country", "org", "asn", "port"]
+        new_tasks = []
+
         for fuzzKey in FUZZ_LIST:
             if fuzzKey not in search_key:
                 if fuzzKey == "country":
@@ -520,24 +507,22 @@ class FofaMain:
                     dataList = self.bypassPort(context, index)
                 else:
                     dataList = []
-                # country_list = self.bypassCountry(context, index)
-                for data in dataList:
-                    new_key = search_key + ' && {}="{}"'.format(fuzzKey, data)
-                    # print("new_key: "+new_key)
-                    searchbs64_modify = urllib.parse.quote(base64.b64encode(new_key.encode("utf-8")))
-                    self.fuzzListAdd()
-                    self.setIndexTimestamp(searchbs64_modify, self.timestamp_index)
-                    # self.fofaSpiderOnePageData(search_key,searchbs64_modify,self.timestamp_index)
-                    self.fofaSpider(new_key, searchbs64_modify, self.timestamp_index)
 
                 for data in dataList:
-                    new_key = search_key + ' && {}!="{}"'.format(fuzzKey, data)
-                    # print("new_key: "+new_key)
+                    new_key = search_key + f' && {fuzzKey}="{data}"'
                     searchbs64_modify = urllib.parse.quote(base64.b64encode(new_key.encode("utf-8")))
                     self.fuzzListAdd()
                     self.setIndexTimestamp(searchbs64_modify, self.timestamp_index)
-                    # self.fofaSpiderOnePageData(search_key,searchbs64_modify,self.timestamp_index)
-                    self.fofaSpider(new_key, searchbs64_modify, self.timestamp_index)
+                    new_tasks.append((new_key, searchbs64_modify, self.timestamp_index))
+
+                for data in dataList:
+                    new_key = search_key + f' && {fuzzKey}!="{data}"'
+                    searchbs64_modify = urllib.parse.quote(base64.b64encode(new_key.encode("utf-8")))
+                    self.fuzzListAdd()
+                    self.setIndexTimestamp(searchbs64_modify, self.timestamp_index)
+                    new_tasks.append((new_key, searchbs64_modify, self.timestamp_index))
+
+        return new_tasks
 
     def modifySearchTimeUrl(self, search_key, index):
         """
@@ -554,7 +539,8 @@ class FofaMain:
             if "before=" in search_key:
                 pattern = r'before="([^"]+)"'
                 match = re.search(pattern, search_key)
-                before_time_in_search_key = match.group(1)
+                if match:
+                    before_time_in_search_key = match.group(1)
             time_before_time_in_search_key = datetime.strptime(before_time_in_search_key, "%Y-%m-%d").date()
             # print(self.timestamp_list)
             # print(index)
@@ -594,7 +580,8 @@ class FofaMain:
             if "before=" in search_key:
                 pattern = r'before="([^"]+)"'
                 match = re.search(pattern, search_key)
-                before_time_in_search_key = match.group(1)
+                if match:
+                    before_time_in_search_key = match.group(1)
             time_before_time_in_search_key = datetime.strptime(before_time_in_search_key, '%Y-%m-%d %H:%M:%S')
             timestamp_list = list(self.timestamp_list[index])
             timestamp_list.sort()
@@ -603,16 +590,15 @@ class FofaMain:
                 self._destroy()
 
             if config.DEBUG:
-                print("[-] timestamp_list:"+str(timestamp_list))
+                print("[-] timestamp_list:" + str(timestamp_list))
             time_first = timestamp_list[0].strip('\n').strip()
             if config.DEBUG:
-                print("[-] time_first: "+time_first)
+                print("[-] time_first: " + time_first)
             time_first_time = datetime.strptime(time_first, '%Y-%m-%d %H:%M:%S')
             time_before = time_first_time + timedelta(hours=1)
 
             if time_before >= time_before_time_in_search_key:
                 time_before = time_before_time_in_search_key - timedelta(hours=1)
-
 
             if 'before' in search_key:
                 search_key = search_key.split('&& before')[0]
@@ -679,8 +665,6 @@ class FofaMain:
         print(colorize(_('[*] 开始运行'), "green"))
         if self.inputfile:
             with open(self.inputfile, 'r') as f:
-                # self.filename = "{}_{}.{}".format(unit.md5(self.search_key), int(time.time()), self.output)
-                # self.output_data = OutputData(self.filename, self.level, pattern=self.output)
                 for line in f.readlines():
                     self.cleanInitParameters()
                     self.search_key = clipKeyWord(line.strip())
@@ -712,7 +696,6 @@ class FofaMain:
     def _destroy(self):
         self.removeDuplicate()
         if not self.inputfile:
-            
             sys.exit(0)
 
 
